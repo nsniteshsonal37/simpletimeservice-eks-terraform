@@ -25,9 +25,7 @@ pipeline {
 
         stage('Build Image') {
             steps {
-                script {
-                    docker.build("${env.IMAGE_REPOSITORY}:${params.IMAGE_TAG}", env.APP_DIRECTORY)
-                }
+                sh 'docker build -t "$IMAGE_REPOSITORY:$IMAGE_TAG" "$APP_DIRECTORY"'
             }
         }
 

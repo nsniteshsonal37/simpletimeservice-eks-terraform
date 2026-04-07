@@ -78,6 +78,8 @@ Optional Jenkins pipeline:
 
 - A root `Jenkinsfile` is included to build from `app/` and push to DockerHub.
 - The pipeline is written for a Linux Jenkins agent with Docker installed.
+- The pipeline uses plain Docker CLI commands, so it does not require the Jenkins Docker Pipeline plugin.
+- If Jenkins itself runs in a container, that container still needs access to a working Docker daemon.
 - Store DockerHub credentials in Jenkins Credentials, not in the repository.
 - Configure a Jenkins `Username with password` credential with ID `dockerhub-credentials`.
 - The `Jenkinsfile` reads that credential via `withCredentials(...)` and passes it to `docker login --password-stdin`.
