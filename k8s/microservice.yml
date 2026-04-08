@@ -133,7 +133,7 @@ kind: PodDisruptionBudget
 metadata:
   name: simpletimeservice-pdb
 spec:
-  minAvailable: 1
+  minAvailable: 2
   selector:
     matchLabels:
       app: simpletimeservice
@@ -260,7 +260,7 @@ kind: PodDisruptionBudget
 metadata:
   name: simpletimeservice-nginx-pdb
 spec:
-  minAvailable: 1
+  minAvailable: 2
   selector:
     matchLabels:
       app: simpletimeservice-nginx
