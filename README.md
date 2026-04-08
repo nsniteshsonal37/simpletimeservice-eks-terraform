@@ -151,6 +151,12 @@ The Terraform code creates:
 - 1 AWS Load Balancer Controller installation for ALB-backed Kubernetes Ingress
 - EKS worker nodes on private subnets only
 
+Defaults and overrides:
+
+- This repository intentionally includes default values in `variables.tf` and `terraform.tfvars` to provide a working baseline and reduce setup friction.
+- These defaults are fallbacks, not strict hardcoding. You are expected to use values appropriate for your own AWS account, region, CIDR plan, and sizing requirements.
+- Recommended override points: `terraform/terraform.tfvars`, `terraform/profiles/*.tfvars`, CLI `-var` flags, or CI/CD environment parameters.
+
 Profile switching:
 
 - Default profile is `deployment_profile = "prod"` so `terraform plan` and `terraform apply` produce the assessment-sized infrastructure by default.
@@ -194,6 +200,12 @@ Terraform-only apply scripts (profile selection + Terraform init/validate/apply)
 ./scripts/apply.sh --profile dev --allowed-cidr 203.0.113.10/32
 ```
 
+Interactive input behavior:
+
+- `apply.ps1` / `apply.sh` prompt for deployment profile (`dev` or `prod`) when not supplied.
+- They also prompt for EKS API allowlist CIDR when not supplied.
+- In non-interactive automation (for example CI), pass arguments explicitly (`-Profile` / `--profile`, `-AllowedCidr` / `--allowed-cidr`) to avoid prompts.
+
 After a successful Terraform apply, both scripts write `terraform/post-apply.env` containing machine-readable exports for downstream tooling:
 
 ```dotenv
@@ -226,6 +238,8 @@ One-click deploy scripts (Terraform + kubeconfig + Kubernetes apply):
 ./scripts/deploy.sh --profile prod
 ./scripts/deploy.sh --profile prod --allowed-cidr 203.0.113.10/32
 ```
+
+- `deploy.ps1` / `deploy.sh` follow the same interactive prompting pattern for profile and allowed CIDR when values are not provided.
 
 By default these scripts run `terraform apply -auto-approve`.
 Use `-NoAutoApprove` (PowerShell) or `--no-auto-approve` (Bash) to require manual confirmation.

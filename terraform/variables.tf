@@ -28,6 +28,18 @@ variable "kubernetes_version" {
   default     = "1.31"
 }
 
+variable "enable_nat_gateway" {
+  description = "Whether to create NAT gateway resources for private subnet egress."
+  type        = bool
+  default     = true
+}
+
+variable "single_nat_gateway" {
+  description = "Whether to use a single shared NAT gateway instead of one per AZ."
+  type        = bool
+  default     = true
+}
+
 variable "deployment_profile" {
   description = "Deployment profile used to choose sane defaults for node sizing and capacity."
   type        = string
@@ -43,6 +55,18 @@ variable "cluster_endpoint_public_access" {
   description = "Whether the EKS API endpoint is publicly accessible. Set to true only with a restricted CIDR allowlist."
   type        = bool
   default     = false
+}
+
+variable "cluster_endpoint_private_access" {
+  description = "Whether the EKS API endpoint is privately accessible from within the VPC."
+  type        = bool
+  default     = true
+}
+
+variable "enable_cluster_creator_admin_permissions" {
+  description = "Whether the Terraform caller should automatically receive EKS cluster admin permissions."
+  type        = bool
+  default     = true
 }
 
 variable "eks_public_access_cidrs" {
@@ -99,6 +123,23 @@ variable "node_max_size" {
   description = "Optional override for maximum number of EKS worker nodes. If null, value comes from deployment_profile defaults."
   type        = number
   default     = null
+}
+
+variable "kms_deletion_window_in_days" {
+  description = "Waiting period before scheduled KMS key deletion is finalized."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.kms_deletion_window_in_days >= 7 && var.kms_deletion_window_in_days <= 30
+    error_message = "kms_deletion_window_in_days must be between 7 and 30."
+  }
+}
+
+variable "kms_enable_key_rotation" {
+  description = "Whether automatic KMS key rotation is enabled for the EKS encryption key."
+  type        = bool
+  default     = true
 }
 
 variable "dockerhub_image" {
