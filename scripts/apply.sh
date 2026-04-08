@@ -21,7 +21,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "Unknown argument: $1"
-      echo "Usage: ./scripts/deploy.sh [--profile dev|prod] [--no-auto-approve] [--allowed-cidr <CIDR>]"
+      echo "Usage: ./scripts/apply.sh [--profile dev|prod] [--no-auto-approve] [--allowed-cidr <CIDR>]"
       exit 1
       ;;
   esac
@@ -30,7 +30,6 @@ done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TERRAFORM_DIR="$REPO_ROOT/terraform"
-K8S_MANIFEST="$REPO_ROOT/k8s/microservice.yml"
 PIPELINE_EXPORT_FILE="$TERRAFORM_DIR/post-apply.env"
 
 require_cmd() {
@@ -42,22 +41,6 @@ require_cmd() {
 
 terraform_output_raw() {
   terraform -chdir=terraform output -raw "$1"
-}
-
-get_ingress_public_url() {
-  local hostname=""
-
-  for _ in $(seq 1 30); do
-    hostname="$(kubectl get ingress simpletimeservice-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
-    if [[ -n "$hostname" ]]; then
-      printf 'http://%s' "$hostname"
-      return 0
-    fi
-
-    sleep 10
-  done
-
-  return 1
 }
 
 write_pipeline_exports() {
@@ -80,11 +63,9 @@ EOF
 }
 
 require_cmd terraform
-require_cmd aws
-require_cmd kubectl
 
 if [[ -z "$PROFILE" && -t 0 ]]; then
-  echo "Select deployment profile:"
+  echo "Select Terraform apply profile:"
   echo "Press 1 for dev"
   echo "Press 2 for prod"
 
@@ -113,10 +94,25 @@ if [[ -z "$ALLOWED_CIDR" && -t 0 ]]; then
   read -r -p "Enter allowed CIDR for EKS API endpoint (for example 203.0.113.10/32), or press Enter to keep current/default: " ALLOWED_CIDR
 fi
 
-echo "Starting deployment workflow..."
+echo "Starting Terraform apply workflow..."
 echo "Repository root: $REPO_ROOT"
+
 if [[ -n "$PROFILE" ]]; then
-  echo "Requested profile: $PROFILE"
+  if [[ "$PROFILE" != "dev" && "$PROFILE" != "prod" ]]; then
+    echo "Invalid profile: $PROFILE (expected dev or prod)"
+    exit 1
+  fi
+
+  PROFILE_FILE="$TERRAFORM_DIR/profiles/$PROFILE.tfvars"
+  AUTO_PROFILE_FILE="$TERRAFORM_DIR/profile.auto.tfvars"
+
+  if [[ ! -f "$PROFILE_FILE" ]]; then
+    echo "Profile file not found: $PROFILE_FILE"
+    exit 1
+  fi
+
+  cp "$PROFILE_FILE" "$AUTO_PROFILE_FILE"
+  echo "Active Terraform profile set to '$PROFILE'."
 else
   echo "Requested profile: none (using current terraform defaults)"
 fi
@@ -136,24 +132,6 @@ else
   echo "EKS API endpoint set to private-only access."
 fi
 
-if [[ -n "$PROFILE" ]]; then
-  if [[ "$PROFILE" != "dev" && "$PROFILE" != "prod" ]]; then
-    echo "Invalid profile: $PROFILE (expected dev or prod)"
-    exit 1
-  fi
-
-  PROFILE_FILE="$TERRAFORM_DIR/profiles/$PROFILE.tfvars"
-  AUTO_PROFILE_FILE="$TERRAFORM_DIR/profile.auto.tfvars"
-
-  if [[ ! -f "$PROFILE_FILE" ]]; then
-    echo "Profile file not found: $PROFILE_FILE"
-    exit 1
-  fi
-
-  cp "$PROFILE_FILE" "$AUTO_PROFILE_FILE"
-  echo "Active Terraform profile set to '$PROFILE'."
-fi
-
 cd "$REPO_ROOT"
 
 echo "Running: terraform init"
@@ -169,28 +147,4 @@ else
   terraform -chdir=terraform apply -auto-approve
 fi
 
-REGION="$(terraform_output_raw aws_region)"
-CLUSTER_NAME="$(terraform_output_raw cluster_name)"
-
-echo "Updating kubeconfig for cluster '$CLUSTER_NAME' in region '$REGION'"
-aws eks update-kubeconfig --region "$REGION" --name "$CLUSTER_NAME"
-
-echo "Applying Kubernetes manifest: $K8S_MANIFEST"
-kubectl apply -f "$K8S_MANIFEST"
-echo "Waiting for rollout: deployment/simpletimeservice"
-kubectl rollout status deployment/simpletimeservice --timeout=180s
-echo "Waiting for rollout: deployment/simpletimeservice-nginx"
-kubectl rollout status deployment/simpletimeservice-nginx --timeout=180s
-
-echo "Resolving public URL from ingress/simpletimeservice-ingress"
-PUBLIC_URL="$(get_ingress_public_url || true)"
-if [[ -n "$PUBLIC_URL" ]]; then
-  echo "Public URL: $PUBLIC_URL"
-else
-  echo "Public URL not available yet; writing blank STS_PUBLIC_URL export."
-fi
-
-write_pipeline_exports "$PUBLIC_URL"
-
-echo "One-click deploy completed successfully."
-echo "Run 'kubectl get pods' and 'kubectl get svc' to verify resources."
+write_pipeline_exports

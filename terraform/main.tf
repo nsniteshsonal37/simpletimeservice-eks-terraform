@@ -6,11 +6,29 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    helm = {
+      source  = "hashicorp/helm"
+      version = "~> 2.0"
+    }
   }
 }
 
 provider "aws" {
   region = var.aws_region
+}
+
+# Helm provider authenticates to EKS via the AWS CLI token exec plugin.
+# Requires `aws` CLI on PATH – the same requirement as kubectl.
+provider "helm" {
+  kubernetes {
+    host                   = module.eks.cluster_endpoint
+    cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
+    exec {
+      api_version = "client.authentication.k8s.io/v1beta1"
+      command     = "aws"
+      args        = ["eks", "get-token", "--cluster-name", local.cluster_name, "--region", var.aws_region]
+    }
+  }
 }
 
 data "aws_availability_zones" "available" {
@@ -22,7 +40,7 @@ locals {
 
   profile_settings = {
     dev = {
-      az_count = 1
+      az_count = 2
     }
     prod = {
       az_count = 2
@@ -32,8 +50,8 @@ locals {
   selected_profile = local.profile_settings[var.deployment_profile]
 
   azs             = slice(data.aws_availability_zones.available.names, 0, local.selected_profile.az_count)
-  public_subnets  = [for i in range(local.selected_profile.az_count) : cidrsubnet(var.vpc_cidr, 4, i)]
-  private_subnets = [for i in range(local.selected_profile.az_count) : cidrsubnet(var.vpc_cidr, 4, i + local.selected_profile.az_count)]
+  public_subnets  = [for i in range(local.selected_profile.az_count) : cidrsubnet(var.vpc_cidr, 4, i * 2)]
+  private_subnets = [for i in range(local.selected_profile.az_count) : cidrsubnet(var.vpc_cidr, 4, i * 2 + 1)]
 
   node_profiles = {
     dev = {
@@ -82,14 +100,32 @@ module "vpc" {
   single_nat_gateway = true
 
   public_subnet_tags = {
-    "kubernetes.io/role/elb" = "1"
+    "kubernetes.io/role/elb"                      = "1"
+    "kubernetes.io/cluster/${local.cluster_name}" = "shared"
   }
 
   private_subnet_tags = {
-    "kubernetes.io/role/internal-elb" = "1"
+    "kubernetes.io/role/internal-elb"             = "1"
+    "kubernetes.io/cluster/${local.cluster_name}" = "shared"
   }
 
   tags = local.common_tags
+}
+
+resource "aws_kms_key" "eks_cluster_encryption" {
+  description             = "KMS key for EKS secret encryption"
+  deletion_window_in_days = 30
+  enable_key_rotation     = true
+
+  tags = merge(
+    local.common_tags,
+    { Name = "${local.cluster_name}-kms" }
+  )
+}
+
+resource "aws_kms_alias" "eks_cluster_encryption" {
+  name          = "alias/eks/${local.cluster_name}"
+  target_key_id = aws_kms_key.eks_cluster_encryption.key_id
 }
 
 module "eks" {
@@ -98,11 +134,19 @@ module "eks" {
 
   cluster_name    = local.cluster_name
   cluster_version = var.kubernetes_version
+  enable_cluster_creator_admin_permissions = true
 
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.private_subnets
 
-  cluster_endpoint_public_access = true
+  cluster_endpoint_private_access = true
+  cluster_endpoint_public_access = var.cluster_endpoint_public_access
+  cluster_endpoint_public_access_cidrs = var.eks_public_access_cidrs
+  create_kms_key                 = false
+  cluster_encryption_config = {
+    resources        = ["secrets"]
+    provider_key_arn = aws_kms_key.eks_cluster_encryption.arn
+  }
 
   eks_managed_node_groups = {
     default = {
@@ -118,50 +162,4 @@ module "eks" {
   }
 
   tags = local.common_tags
-}
-
-resource "aws_ecr_repository" "simpletimeservice" {
-  name                 = var.ecr_repository_name
-  image_tag_mutability = "IMMUTABLE"
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-
-  tags = local.common_tags
-}
-
-resource "aws_ecr_lifecycle_policy" "simpletimeservice" {
-  repository = aws_ecr_repository.simpletimeservice.name
-
-  policy = jsonencode({
-    rules = [
-      {
-        rulePriority = 1
-        description  = "Expire untagged images older than 7 days"
-        selection = {
-          tagStatus   = "untagged"
-          countType   = "sinceImagePushed"
-          countUnit   = "days"
-          countNumber = 7
-        }
-        action = {
-          type = "expire"
-        }
-      },
-      {
-        rulePriority = 2
-        description  = "Keep only the latest 10 tagged images"
-        selection = {
-          tagStatus     = "tagged"
-          tagPrefixList = ["v", "release", "prod", "dev", "latest"]
-          countType     = "imageCountMoreThan"
-          countNumber   = 10
-        }
-        action = {
-          type = "expire"
-        }
-      }
-    ]
-  })
 }

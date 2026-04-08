@@ -9,6 +9,9 @@ venv/
 *.tfstate
 *.tfstate.*
 terraform/profile.auto.tfvars
+terraform/access.auto.tfvars
+terraform/*-profile-plan.txt
+terraform/post-apply.env
 crash.log
 override.tf
 override.tf.json

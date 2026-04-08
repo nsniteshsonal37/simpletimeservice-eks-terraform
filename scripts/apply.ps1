@@ -10,7 +10,6 @@ $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Resolve-Path (Join-Path $scriptDir "..")
 $terraformDir = Join-Path $repoRoot "terraform"
-$k8sManifest = Join-Path $repoRoot "k8s\microservice.yml"
 $pipelineExportFile = Join-Path $terraformDir "post-apply.env"
 
 function Assert-CommandExists {
@@ -29,24 +28,6 @@ function Get-TerraformOutputRaw {
     }
 
     return $value.Trim()
-}
-
-function Get-IngressPublicUrl {
-    param(
-        [int]$Attempts = 30,
-        [int]$SleepSeconds = 10
-    )
-
-    for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
-        $hostname = kubectl get ingress simpletimeservice-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>$null
-        if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($hostname)) {
-            return "http://$($hostname.Trim())"
-        }
-
-        Start-Sleep -Seconds $SleepSeconds
-    }
-
-    return ""
 }
 
 function Write-PipelineExports {
@@ -74,13 +55,9 @@ function Write-PipelineExports {
 }
 
 Assert-CommandExists "terraform"
-Assert-CommandExists "aws"
-Assert-CommandExists "kubectl"
-
-$awsCommand = "aws"
 
 if (-not $Profile -and $Host.Name -ne "ServerRemoteHost") {
-    Write-Host "Select deployment profile:"
+    Write-Host "Select Terraform apply profile:"
     Write-Host "Press 1 for dev"
     Write-Host "Press 2 for prod"
     Write-Host "Press Enter to keep current defaults"
@@ -104,7 +81,7 @@ if ($AllowedCidr -and $AllowedCidr -notmatch '^[0-9]{1,3}(\.[0-9]{1,3}){3}/([0-9
     throw "Invalid CIDR format: $AllowedCidr"
 }
 
-Write-Host "Starting deployment workflow..."
+Write-Host "Starting Terraform apply workflow..."
 Write-Host "Repository root: $repoRoot"
 
 if ($Profile) {
@@ -125,9 +102,6 @@ else {
 if ($NoAutoApprove) {
     Write-Host "Terraform apply mode: interactive approval"
 }
-else {
-    Write-Host "Terraform apply mode: auto-approve"
-}
 
 $accessOverrideFile = Join-Path $terraformDir "access.auto.tfvars"
 if ($AllowedCidr) {
@@ -144,6 +118,9 @@ else {
     ) | Set-Content -Path $accessOverrideFile -Encoding ascii
     Write-Host "EKS API endpoint set to private-only access."
 }
+else {
+    Write-Host "Terraform apply mode: auto-approve"
+}
 
 Push-Location $repoRoot
 try {
@@ -152,62 +129,20 @@ try {
     Write-Host "Running: terraform validate"
     terraform -chdir=terraform validate
 
-    $applyArgs = @("-chdir=terraform", "apply")
-    if (-not $NoAutoApprove) {
-        $applyArgs += "-auto-approve"
-    }
-
     if ($NoAutoApprove) {
         Write-Host "Running: terraform apply"
+        terraform -chdir=terraform apply
     }
     else {
         Write-Host "Running: terraform apply -auto-approve"
+        terraform -chdir=terraform apply -auto-approve
     }
-    terraform @applyArgs
+
     if ($LASTEXITCODE -ne 0) {
         throw "terraform apply failed with exit code $LASTEXITCODE"
     }
 
-    $region = Get-TerraformOutputRaw -Name "aws_region"
-    $clusterName = Get-TerraformOutputRaw -Name "cluster_name"
-
-    Write-Host "Updating kubeconfig for cluster '$clusterName' in region '$region'"
-    & $awsCommand eks update-kubeconfig --region $region --name $clusterName
-    if ($LASTEXITCODE -ne 0) {
-        throw "aws eks update-kubeconfig failed with exit code $LASTEXITCODE"
-    }
-
-    Write-Host "Applying Kubernetes manifest: $k8sManifest"
-    kubectl apply -f $k8sManifest
-    if ($LASTEXITCODE -ne 0) {
-        throw "kubectl apply failed with exit code $LASTEXITCODE"
-    }
-
-    Write-Host "Waiting for rollout: deployment/simpletimeservice"
-    kubectl rollout status deployment/simpletimeservice --timeout=180s
-    if ($LASTEXITCODE -ne 0) {
-        throw "kubectl rollout failed for deployment/simpletimeservice with exit code $LASTEXITCODE"
-    }
-
-    Write-Host "Waiting for rollout: deployment/simpletimeservice-nginx"
-    kubectl rollout status deployment/simpletimeservice-nginx --timeout=180s
-    if ($LASTEXITCODE -ne 0) {
-        throw "kubectl rollout failed for deployment/simpletimeservice-nginx with exit code $LASTEXITCODE"
-    }
-
-    Write-Host "Resolving public URL from ingress/simpletimeservice-ingress"
-    $publicUrl = Get-IngressPublicUrl
-    if ([string]::IsNullOrWhiteSpace($publicUrl)) {
-        Write-Host "Public URL not available yet; writing blank STS_PUBLIC_URL export."
-    }
-    else {
-        Write-Host "Public URL: $publicUrl"
-    }
-
-    Write-PipelineExports -PublicUrl $publicUrl
-
-    Write-Host "One-click deploy completed successfully."
-    Write-Host "Run 'kubectl get pods' and 'kubectl get svc' to verify resources."
+    Write-PipelineExports
 }
 finally {
     Pop-Location

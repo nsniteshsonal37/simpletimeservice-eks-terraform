@@ -270,10 +270,32 @@ kind: Service
 metadata:
   name: simpletimeservice-nginx
 spec:
-  type: NodePort
+  type: ClusterIP
   selector:
     app: simpletimeservice-nginx
   ports:
     - name: http
       port: 80
       targetPort: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: simpletimeservice-ingress
+  annotations:
+    # Route HTTP traffic only – no TLS certificate configured.
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    # Target pod IPs directly (works with private-subnet nodes).
+    alb.ingress.kubernetes.io/target-type: ip
+spec:
+  ingressClassName: alb
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: simpletimeservice-nginx
+                port:
+                  number: 80

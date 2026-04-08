@@ -31,15 +31,35 @@ require_cmd() {
 require_cmd terraform
 require_cmd kubectl
 
+echo "Starting destroy workflow..."
+echo "Repository root: $REPO_ROOT"
+
+if [[ "$NO_AUTO_APPROVE" == "true" ]]; then
+  echo "Terraform destroy mode: interactive approval"
+elif [[ -t 0 ]]; then
+  echo "This will delete Kubernetes resources from $K8S_MANIFEST and run terraform destroy -auto-approve."
+  read -r -p "Type DESTROY to continue: " destroy_confirmation
+  if [[ "$destroy_confirmation" != "DESTROY" ]]; then
+    echo "Destroy cancelled."
+    exit 1
+  fi
+  echo "Terraform destroy mode: auto-approve (confirmed)"
+else
+  echo "Terraform destroy mode: auto-approve"
+fi
+
 cd "$REPO_ROOT"
 
 if [[ -f "$K8S_MANIFEST" ]]; then
+  echo "Deleting Kubernetes manifest: $K8S_MANIFEST"
   kubectl delete -f "$K8S_MANIFEST" --ignore-not-found=true
 fi
 
 if [[ "$NO_AUTO_APPROVE" == "true" ]]; then
+  echo "Running: terraform destroy"
   terraform -chdir=terraform destroy
 else
+  echo "Running: terraform destroy -auto-approve"
   terraform -chdir=terraform destroy -auto-approve
 fi
 

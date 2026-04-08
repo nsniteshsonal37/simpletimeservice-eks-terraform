@@ -39,6 +39,33 @@ variable "deployment_profile" {
   }
 }
 
+variable "cluster_endpoint_public_access" {
+  description = "Whether the EKS API endpoint is publicly accessible. Set to true only with a restricted CIDR allowlist."
+  type        = bool
+  default     = false
+}
+
+variable "eks_public_access_cidrs" {
+  description = "CIDR blocks allowed to reach the public EKS API endpoint."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for cidr in var.eks_public_access_cidrs : can(cidrhost(cidr, 0))])
+    error_message = "Each eks_public_access_cidrs entry must be a valid CIDR block, for example 203.0.113.10/32."
+  }
+
+  validation {
+    condition     = alltrue([for cidr in var.eks_public_access_cidrs : cidr != "0.0.0.0/0"])
+    error_message = "0.0.0.0/0 is not allowed for eks_public_access_cidrs in zero-trust mode."
+  }
+
+  validation {
+    condition     = var.cluster_endpoint_public_access ? length(var.eks_public_access_cidrs) > 0 : true
+    error_message = "When cluster_endpoint_public_access is true, provide at least one restricted CIDR in eks_public_access_cidrs."
+  }
+}
+
 variable "node_instance_types" {
   description = "Optional override for EKS node instance types. If null, values come from deployment_profile defaults."
   type        = list(string)
@@ -74,8 +101,14 @@ variable "node_max_size" {
   default     = null
 }
 
-variable "ecr_repository_name" {
-  description = "ECR repository name used for the application image."
+variable "dockerhub_image" {
+  description = "DockerHub image reference used by the application deployment."
   type        = string
-  default     = "simpletimeservice"
+  default     = "nsniteshsonal37/simpletimeservice:1.0.2"
+}
+
+variable "aws_lbc_chart_version" {
+  description = "Helm chart version for the AWS Load Balancer Controller. Check https://github.com/aws/eks-charts for the latest release."
+  type        = string
+  default     = "1.8.1"
 }

@@ -13,6 +13,11 @@ output "public_subnet_ids" {
   value       = module.vpc.public_subnets
 }
 
+output "public_subnet_ids_csv" {
+  description = "Public subnet IDs as a comma-separated string for pipeline consumption."
+  value       = join(",", module.vpc.public_subnets)
+}
+
 output "cluster_name" {
   description = "Name of the EKS cluster."
   value       = module.eks.cluster_name
@@ -28,7 +33,22 @@ output "aws_region" {
   value       = var.aws_region
 }
 
-output "ecr_repository_url" {
-  description = "ECR repository URI for the SimpleTimeService image."
-  value       = aws_ecr_repository.simpletimeservice.repository_url
+output "deployment_profile" {
+  description = "Deployment profile selected for this stack."
+  value       = var.deployment_profile
+}
+
+output "environment" {
+  description = "Environment name used for this stack."
+  value       = var.environment
+}
+
+output "private_subnet_ids_csv" {
+  description = "Private subnet IDs as a comma-separated string for pipeline consumption."
+  value       = join(",", module.vpc.private_subnets)
+}
+
+output "dockerhub_image" {
+  description = "DockerHub image used by the SimpleTimeService deployment."
+  value       = var.dockerhub_image
 }
