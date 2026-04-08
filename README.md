@@ -105,6 +105,7 @@ docker push nsniteshsonal37/simpletimeservice:1.0.2
 Optional Jenkins pipeline:
 
 - A root `Jenkinsfile` is included to build from `app/` and push to DockerHub.
+- A dedicated `Jenkinsfile.deploy` is also included for deploy-only workflows (promote an existing image tag to EKS without rebuilding/pushing).
 - The pipeline is written for a Linux Jenkins agent with Docker installed.
 - The pipeline uses plain Docker CLI commands, so it does not require the Jenkins Docker Pipeline plugin.
 - If Jenkins itself runs in a container, that container still needs access to a working Docker daemon.
@@ -115,6 +116,7 @@ Optional Jenkins pipeline:
 - Set `STS_PUSH_LATEST=true` if you also want to publish the `latest` tag.
 - Set `STS_DEPLOY_TO_EKS=true` to enable CD rollout to EKS after a successful image push.
 - For CD rollout, set `STS_AWS_REGION` and `STS_EKS_CLUSTER_NAME` parameters.
+- For deploy-only runs, use `Jenkinsfile.deploy` with `STS_IMAGE_TAG`, `STS_AWS_REGION`, and `STS_EKS_CLUSTER_NAME`.
 - The infrastructure and deploy helper scripts also generate `terraform/post-apply.env` with pipeline-friendly values such as `STS_AWS_REGION`, `STS_EKS_CLUSTER_NAME`, `STS_CLUSTER_ENDPOINT`, and `STS_PUBLIC_URL`.
 - That file is intended as a local handoff artifact for operators after `terraform apply` or `deploy`; Jenkins should not assume it exists on the agent unless you explicitly copy or publish it there.
 - On a separate Jenkins machine, read the needed values from `terraform output` or copy the contents of `terraform/post-apply.env` into Jenkins job parameters or environment configuration.
@@ -353,5 +355,5 @@ Against the optional extra-credit list, this repository currently covers:
 
 - Implemented: Kubernetes manifest best practices (resource requests/limits, readiness/liveness probes, rolling update strategy, PodDisruptionBudget, pod anti-affinity)
 - Implemented: Sidecar container pattern via OpenTelemetry Collector in `k8s/microservice.yml`
-- Implemented: CI/CD pipeline via root `Jenkinsfile` (build, DockerHub push, optional EKS rollout)
+- Implemented: CI/CD pipelines via `Jenkinsfile` (build/push/optional rollout) and `Jenkinsfile.deploy` (deploy existing tag only)
 - Implemented: Terraform Helm provider usage with a public chart (`aws-load-balancer-controller`)

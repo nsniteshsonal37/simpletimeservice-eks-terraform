@@ -1,0 +1,46 @@
+pipeline {
+    agent any
+
+    options {
+        timestamps()
+    }
+
+    parameters {
+        string(name: 'STS_IMAGE_TAG', defaultValue: '1.0.2', description: 'Existing Docker image tag to deploy')
+        string(name: 'STS_AWS_REGION', defaultValue: 'us-east-1', description: 'AWS region for EKS deployment')
+        string(name: 'STS_EKS_CLUSTER_NAME', defaultValue: 'simpletimeservice-prod-eks', description: 'EKS cluster name for deployment')
+    }
+
+    environment {
+        STS_IMAGE_REPOSITORY = 'nsniteshsonal37/simpletimeservice'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Deploy Tag to EKS') {
+            steps {
+                sh '''
+set -euo pipefail
+
+aws eks update-kubeconfig --region "$STS_AWS_REGION" --name "$STS_EKS_CLUSTER_NAME"
+
+# Apply baseline manifest if deployment does not exist yet.
+if kubectl get deployment/simpletimeservice >/dev/null 2>&1; then
+    kubectl set image deployment/simpletimeservice simpletimeservice="$STS_IMAGE_REPOSITORY:$STS_IMAGE_TAG"
+else
+    kubectl apply -f k8s/microservice.yml
+    kubectl set image deployment/simpletimeservice simpletimeservice="$STS_IMAGE_REPOSITORY:$STS_IMAGE_TAG"
+fi
+
+kubectl rollout status deployment/simpletimeservice --timeout=180s
+kubectl get pods -l app=simpletimeservice
+'''
+            }
+        }
+    }
+}
